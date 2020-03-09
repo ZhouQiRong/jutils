@@ -1,0 +1,113 @@
+package fileMoveDes;
+
+import java.lang.management.ManagementFactory;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Random;
+
+/**
+ * 以内存自增序列为基础的ID生成器，可使用日期、IP、进程号、对象号等来确保多实例运行情况下的ID唯一性。
+ * (IP最后一位，4位随机数，5位PID，5位OID，YYYYMMDD日期，10位流水；不足左补0)
+ * 日期更迭后，序列号自动重置0。 
+ */
+public class SequenceGenerator{
+	/** IP参数，表示当前机器IP */
+	private String PARAM_IP = "0";// 如果读不到ID，则以0代替
+	/** 进程号参数，表示JVM进程号 */
+	private String PARAM_PID = "0";
+	/** 对象号参数，表示当前SequenceGenerator的唯一hashCode */
+	private String PARAM_OID = "0";
+	/** 随机数*/
+	private int PARAM_NUM = 0;
+	/** 缺省日期格式 */
+	private String DEFAULT_DATEFORMAT = "yyyyMMdd";
+	
+	/** 当前日期格式 */
+	private SimpleDateFormat dateFormat;
+	/** 当前日期串 */
+	private String date;
+	/** 当前序列值 */
+	private long seqNo = 0;
+	/** 填空串 */
+	private static final String ZERO_STRING = "0000000000000000000000000000";
+	private static byte[] lock = new byte[0];
+	private static SequenceGenerator instance;
+	
+	public static SequenceGenerator getInstance(){
+		if(instance==null){
+			synchronized(lock){
+				if(instance == null){
+					instance = new SequenceGenerator();
+				}
+			}
+		}
+		return instance;
+	}
+
+
+	/**
+	 * 创建序列ID生成器
+	 * @param pattern 格式串
+	 */
+	private SequenceGenerator() {
+		 
+		try {
+			String ip = InetAddress.getLocalHost().getHostAddress();
+			if(ip!=null)PARAM_IP=ip;
+		} catch (UnknownHostException e) {
+		}
+		
+		Random rd = new Random();
+		PARAM_NUM = rd.nextInt(9999);
+		
+		// 读取OID
+		PARAM_OID = ""+System.identityHashCode(this);
+		
+		// 读取PID
+		try {
+			PARAM_PID = ManagementFactory.getRuntimeMXBean().getName();
+			if (PARAM_PID != null) {
+				int i = PARAM_PID.indexOf("@");
+				if (i>0) PARAM_PID = PARAM_PID.substring(0, i);
+			}
+		} catch (Exception e) {
+		}
+		
+		// 日期设置
+		dateFormat = new SimpleDateFormat(DEFAULT_DATEFORMAT);
+		date = dateFormat.format(new Date());
+	}
+	
+	/**
+	 * 生成唯一ID
+	 */
+	public String generateID() {
+		// 同步方式生成ID，避免并发造成ID重复
+		return syncGenerateID();
+	}
+	
+	/**
+	 * 线程安全的ID串生成方法
+	 * IP+PID+OID+日期+自增序列
+	 * @return ID
+	 */
+	private synchronized String syncGenerateID() {
+		// 如果日期更迭了，则seqNo重置，不然seqNo++
+		String newDate = dateFormat.format(new Date());
+		if (date.equals(newDate)) seqNo ++;
+		else {
+			date = newDate;
+			seqNo = 1;
+		}
+		//拼接流水号(IP最后一位，4位随机数，5位PID，5位OID，YYYYMMDD日期，10位流水；不足左补0)
+		String ip = PARAM_IP.substring(PARAM_IP.length()-1);
+		String num = (ZERO_STRING+PARAM_NUM).substring((ZERO_STRING+PARAM_NUM).length()-4);
+		String pid = (ZERO_STRING+PARAM_PID).substring((ZERO_STRING+PARAM_PID).length()-5);
+		String oid = (ZERO_STRING+PARAM_OID).substring((ZERO_STRING+PARAM_OID).length()-5);
+		String seqNoFormart=(ZERO_STRING+seqNo).substring((ZERO_STRING+seqNo).length()-10);
+		 
+		return ip+num+pid+oid+date+seqNoFormart;
+	}
+}
